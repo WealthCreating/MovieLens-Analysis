@@ -31,18 +31,19 @@ print(ratings.info(memory_usage='deep'))
 # NOTE: I understand that this runs the risk of wrongly adding a movie and might
 # have outliers.  I have not been able to find an exception
 
-# Get dictionary of movies that don't have a year in their  name
-movies_to_remove = {movies['movieId'][i]:movies['title'][i]
+# List of movies that don't have a year in their  name
+movies_to_remove = [movies['movieId'][i]
 					for i in range(len(movies))
 					if not ('18' in movies['title'][i]
 					or '19' in movies['title'][i]
-					or '20' in movies['title'][i])}
+					or '20' in movies['title'][i])]
 
 # Remove said movies from our datasets
-ratings = ratings.loc[~ratings['movieId'].isin(movies_to_remove.keys())].reset_index(drop=True)
-movies = movies.loc[~movies['movieId'].isin(movies_to_remove.keys())].reset_index(drop=True)
+ratings = ratings.loc[~ratings['movieId'].isin(movies_to_remove)].reset_index(drop=True)
+movies = movies.loc[~movies['movieId'].isin(movies_to_remove)].reset_index(drop=True)
 
-# Pulling the year from the title
+
+# Extracting the year from the title
 movies['title'] = movies['title'].str.strip()
 
 
@@ -73,8 +74,6 @@ movies_count = movies_count.reset_index()[['movieId', 'title']]
 
 most_rated_movie_id = ratings_count.loc[ratings_count['rating'] == ratings_count['rating'].max()]['movieId'].values[0]
 movies.loc[movies['movieId'] == most_rated_movie_id]
-
-
 
 
 # It would be interesting to see if the movies with fewer ratings scew
