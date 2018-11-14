@@ -4,12 +4,14 @@ import datetime
 import re
 import scipy
 import matplotlib.pyplot as plt
+import seaborn as sns
+import math
 
-def extract_year(title):
-	if title.find('(') < 0:
-		return int(title[:4])
-
-	return extract_year(title[title.find('(')+1:])
+from sklearn.model_selection import GridSearchCV
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
 
 movies = pd.read_csv('../Data/movies.csv')
 ratings = pd.read_csv('../Data/ratings.csv')
@@ -20,55 +22,159 @@ ratings['movieId'] = ratings['movieId'].astype(np.int32)
 ratings['timestamp'] = ratings['timestamp'].astype(np.int32)
 ratings = ratings[['rating', 'movieId', 'timestamp']]
 
+
+# Removing movies that have no genre listed
+no_genre = movies.loc[movies['genres'] == '(no genres listed)']['movieId'].tolist()
+
+# Only taking movies that have 18, 19, or 20
+year_in_title = [movies['movieId'][i] for i in range(len(movies)) if not ('18' in movies['title'][i] or '19' in movies['title'][i] or '20' in movies['title'][i])]
+
+movies_to_remove = no_genre + year_in_title
+ratings = ratings.loc[~ratings['movieId'].isin(movies_to_remove)].reset_index(drop=True)
+
+# Removing movies that are in movies but not in ratings
+movie_set = set(movies['movieId'])
+ratings_set = set(ratings['movieId'])
+missing_movies = list(movie_set - ratings_set)
+movies = movies.loc[~movies['movieId'].isin(missing_movies)].reset_index(drop=True)
+
+# ------------------------------------------------------------------------------
 # Average rating - NOTE add to jupyter
 ratings_avg = ratings.groupby('movieId')[['movieId','rating']].mean().reset_index(drop=True)
 
-# Get list of movie names to convert movieId
-movie_dict = {movies['movieId'][i]:movies['title'][i] for i in range(len(movies))}
+# Add ratings avg to movies
+ratings_dict = {ratings_avg['movieId'][i]:ratings_avg['rating'][i] for i in range(len(ratings_avg))}
+def find_movie_rating(movie):
+	return ratings_dict[movie]
 
-def find_movie_name(movie):
-	return movie_dict[movie]
+movies['average rating'] = list(map(find_movie_rating, movies['movieId']))
 
-ratings_avg['movieId'] = list(map(find_year, ratings_avg['movieId']))
-ratings_avg.columns = ['movie', 'average rating']
+# Sorting by average value
+movies.sort_values('average rating', inplace=True)
+movies = movies.reset_index(drop=True)
 
-genre_groups = [movie.split('|') for movie in movies['genres']]
+# Median rating
+movies['average rating'].median()
 
-test_set = set()
-for movie in genre_groups:
-	for genre in movie:
-		test_set.add(genre)
+movies
+# ------------------------------------------------------------------------------
+# Cleaning for ML
 
-[[test_set.add(genre) for genre in movie] for movie in genre_groups]
+# top, middle, and bottom 20%
+movies_10_pct = int(len(movies)/10)
 
+movies['popularity'] = None
+bottom_20 = movies['popularity'].iloc[:movies_10_pct*2] = 1 # 'Worst'
+middle_20 = movies['popularity'].iloc[movies_10_pct*4:movies_10_pct*6] = 2 # 'OK'
+top_20 = movies['popularity'].iloc[movies_10_pct*8:] = 3 # 'Best'
 
+movies = movies.dropna().reset_index(drop=True)
 
+# update movies to remove what is not in the top, middle, or bottom 20
+movieIds = ratings_avg['movieId'].tolist()
+movies = movies.loc[movies['movieId'].isin(movieIds)]
 
-
-
-
-
-
-
-
-
-
-movies_to_remove = [movies['movieId'][i] for i in range(len(movies)) if not ('18' in movies['title'][i] or '19' in movies['title'][i] or '20' in movies['title'][i])]
-ratings = ratings.loc[~ratings['movieId'].isin(movies_to_remove)].reset_index(drop=True)
-movies = movies.loc[~movies['movieId'].isin(movies_to_remove)].reset_index(drop=True)
-
-movies_to_remove = movies.loc[movies['genres'] == '(no genres listed)']['movieId'].tolist()
-ratings = ratings.loc[~ratings['movieId'].isin(movies_to_remove)].reset_index(drop=True)
-movies = movies.loc[~movies['movieId'].isin(movies_to_remove)].reset_index(drop=True)
-
-
-movies['title'] = movies['title'].str.strip()
-# NOTE: clean age from movie title
+# Add year of movie
 # NOTE: email says 1960 and before, Raj said 1960 and after...
+movies['title'] = movies['title'].str.strip()
+def extract_year(title):
+	if title.find('(') < 0:
+		return int(title[:4])
+
+	return extract_year(title[title.find('(')+1:])
+
 movies['year'] = [extract_year(movie) for movie in movies['title']]
-movies['age'] = 'Old'
-movies.loc[movies['year'] >= 1970, 'age'] = 'Medium'
-movies.loc[movies['year'] >= 1990, 'age'] = 'New'
+movies['age'] = 1 # 'Old'
+movies.loc[movies['year'] >= 1970, 'age'] = 2 # 'Medium'
+movies.loc[movies['year'] >= 1990, 'age'] = 3 # 'New'
+
+
+# columns of genre groups
+genre_groups = [movie.split('|') for movie in movies['genres']]
+genre_set = set()
+[[genre_set.add(genre) for genre in movie] for movie in genre_groups]
+genre_set = list(genre_set)
+
+df = pd.DataFrame(columns=[genre_set])
+
+df['average rating'] = movies['average rating']
+df['popularity'] = movies['popularity']
+df['age'] = movies['age']
+
+df.fillna(0, inplace=True)
+
+for i in range(len(genre_groups)):
+	for genres in genre_groups[i]:
+		df.loc[i, genres] = 1
+
+# ------------------------------------------------------------------------------
+# ML
+
+
+
+x1 = df[genre_set]
+x2 = pd.get_dummies(df['age'])
+x3 = pd.concat([x1, x2], axis=1)
+y = df['popularity']
+
+logr = LogisticRegression()
+bnb = BernoulliNB()
+tree = RandomForestClassifier()
+
+# Collection of parameters to test
+logr_param = {'tol': [math.exp(-5), math.exp(-4), math.exp(-3)]}
+
+bnb_param = {'alpha': [0.01, 0.5, 1, 2]}
+
+tree_param = {'n_estimators': [10, 100, 200],
+              'n_jobs': [-1],
+              'max_depth': [2, 5, 10]}
+
+
+# Determine the best parameters
+logr_best = GridSearchCV(estimator=logr, param_grid=logr_param, cv=5)
+bnb_best = GridSearchCV(estimator=bnb, param_grid=bnb_param, cv=5)
+tree_best = GridSearchCV(estimator=tree, param_grid=tree_param, cv=5)
+
+classifiers = [logr_best, bnb_best, tree_best]
+predictors = [x1, x2, x3]
+input_columns = ['Genres', 'Age', 'Genres and Age']
+classifier_name = ['Logistic Regression', 'Bernoulli Naive Bayes', 'Random Forest']
+
+for a in range(3):
+	print('Input Columns: {}\n'.format(input_columns[a]))
+	x = predictors[a]
+
+	for i in range(3):
+	    classifier = classifiers[i]
+	    classifier.fit(x, y)
+	    y_pred = classifier.predict(x)
+	    matrix = confusion_matrix(y, y_pred)
+
+	    print(classifier_name[i])
+	    print('\nTrue positive: ', matrix[0][0])
+	    print('False positive: ', matrix[0][1])
+	    print('True Negative: ', matrix[1][1])
+	    print('False Negative: ', matrix[1][0])
+	    print('-------------------------------------------------------')
+
+	print('\n\n\n')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
