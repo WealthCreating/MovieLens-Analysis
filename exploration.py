@@ -11,7 +11,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
+from sklearn.metrics import accuracy_score
 
 movies = pd.read_csv('../Data/movies.csv')
 ratings = pd.read_csv('../Data/ratings.csv')
@@ -56,23 +56,20 @@ movies = movies.reset_index(drop=True)
 # Median rating
 movies['average rating'].median()
 
-movies
 # ------------------------------------------------------------------------------
 # Cleaning for ML
 
-# top, middle, and bottom 20%
+# Since our ratings are sorted, find how many records are in every 10%
 movies_10_pct = int(len(movies)/10)
 
+# Column of movie popularity
 movies['popularity'] = None
 bottom_20 = movies['popularity'].iloc[:movies_10_pct*2] = 1 # 'Worst'
 middle_20 = movies['popularity'].iloc[movies_10_pct*4:movies_10_pct*6] = 2 # 'OK'
 top_20 = movies['popularity'].iloc[movies_10_pct*8:] = 3 # 'Best'
 
+# Remove movies that are not in top, middle, or bottom 20%
 movies = movies.dropna().reset_index(drop=True)
-
-# update movies to remove what is not in the top, middle, or bottom 20
-movieIds = ratings_avg['movieId'].tolist()
-movies = movies.loc[movies['movieId'].isin(movieIds)]
 
 # Add year of movie
 # NOTE: email says 1960 and before, Raj said 1960 and after...
@@ -83,11 +80,11 @@ def extract_year(title):
 
 	return extract_year(title[title.find('(')+1:])
 
+# Column of movie age
 movies['year'] = [extract_year(movie) for movie in movies['title']]
 movies['age'] = 1 # 'Old'
 movies.loc[movies['year'] >= 1970, 'age'] = 2 # 'Medium'
 movies.loc[movies['year'] >= 1990, 'age'] = 3 # 'New'
-
 
 # columns of genre groups
 genre_groups = [movie.split('|') for movie in movies['genres']]
@@ -109,8 +106,6 @@ for i in range(len(genre_groups)):
 
 # ------------------------------------------------------------------------------
 # ML
-
-
 
 x1 = df[genre_set]
 x2 = pd.get_dummies(df['age'])
@@ -140,6 +135,34 @@ classifiers = [logr_best, bnb_best, tree_best]
 predictors = [x1, x2, x3]
 input_columns = ['Genres', 'Age', 'Genres and Age']
 classifier_name = ['Logistic Regression', 'Bernoulli Naive Bayes', 'Random Forest']
+
+print('Predicting movie popularity')
+for a in range(3):
+	print('\n\nInput Columns: {}\n'.format(input_columns[a]))
+	x = predictors[a]
+
+	for i in range(3):
+		classifier = classifiers[i]
+		classifier.fit(x, y)
+		y_pred = classifier.predict(x)
+		print('{}   -    accuracy: {}'.format(classifier_name[i], accuracy_score(y_pred, y)))
+
+print('Predicting movie rating')
+y = df['average rating']
+for a in range(3):
+	print('\n\nInput Columns: {}\n'.format(input_columns[a]))
+	x = predictors[a]
+
+	for i in range(3):
+		classifier = classifiers[i]
+		classifier.fit(x, y)
+		y_pred = classifier.predict(x)
+		print('{}   -    accuracy: {}'.format(classifier_name[i], accuracy_score(y_pred, y)))
+
+
+
+
+
 
 for a in range(3):
 	print('Input Columns: {}\n'.format(input_columns[a]))
