@@ -5,23 +5,13 @@ import warnings
 import math
 
 movies = pd.read_csv('../Data/movies.csv')
-ratings = pd.read_csv('../Data/ratings.csv')
-backup = ratings
-ratings = backup
-
-## Convert ratings to a 1-10 scale and finish cleaning table
-ratings['rating'] *= 2
-ratings['rating'] = ratings['rating'].astype(np.int32)
-ratings['movieId'] = ratings['movieId'].astype(np.int32)
-ratings = ratings[['rating', 'movieId']]
 
 # Removing movies that have no genre listed
-no_genre = movies.loc[movies['genres'] == '(no genres listed)']['movieId'].tolist()
+movies = movies[movies['genres'] != '(no genres listed)']
 
-# Only taking movies released after 1995
-outdated = []
-for i in range(len(movies)):
-	movie = movies['title'][i]
+# Add year released as a feature
+movie_year = []
+for movie in movies['title']:
 	if '(199' in movie:
 		pos = movie.find('(199') + 1
 	elif '(200' in movie:
@@ -29,18 +19,32 @@ for i in range(len(movies)):
 	elif '(201' in movie:
 		pos = movie.find('(201') + 1
 	else:
-		outdated.append(movies['movieId'][i])
+		movie_year.append(None)
 		continue
 
 	year = movie[pos:pos+4]
 
 	if 1995 > int(year):
-		outdated.append(movies['movieId'][i])
+		movie_year.append(None)
+		continue
 
-ratings = ratings.loc[~ratings['movieId'].isin(no_genre + outdated)].reset_index(drop=True)
+	movie_year.append(year)
 
-# Now that we've cleaned ratings, lets update our movie dataframe to only have movies in ratings
-movies = movies.loc[movies['movieId'].isin(set(ratings['movieId']))].reset_index(drop=True)
+# only keep movies released after 1995
+movies['year'] = movie_year
+movies.dropna(inplace=True)
+
+# only keep movies that have ratings
+ratings = pd.read_csv('../Data/ratings.csv')[['rating', 'movieId']]
+movies = movies[movies['movieId'].isin(set(ratings['movieId']))]
+
+# Reduce ratings to only include movies of the clean movies dataframe
+ratings = ratings[ratings['movieId'].isin(movies['movieId'])]
+
+## Convert ratings to a 1-10 scale and update data types
+ratings['rating'] *= 2
+ratings['rating'] = ratings['rating'].astype(np.int8)
+ratings['movieId'] = ratings['movieId'].astype(np.int32)
 
 # before
 len(movies) # 27278
@@ -62,10 +66,11 @@ ratings_cnt.describe()
 # 50%	18.000000
 # 75%	215.000000
 # max	53769.000000
-
 len(ratings_cnt[ratings_cnt['rating'] < 5]) / len(ratings_cnt) # 29.8% movies have less than 5 ratings
 len(ratings_cnt[ratings_cnt['rating'] == 1]) # 2054 movies have 1 rating
 
+movies.head()
+ratings_avg
 
 ratings_dict = {ratings_avg['movieId'][i]:ratings_avg['rating'][i] for i in range(len(ratings_avg))}
 
